@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { storage } from "./firebase"; // Adjust the path if necessary
-
+import axios from "axios";
 function ImageUploader() {
   const [image, setImage] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -39,9 +39,10 @@ function ImageUploader() {
 
       // Get the download URL
       const url = await getDownloadURL(snapshot.ref);
-
+      // const response = await axios.post("cloudflareurl", { imageUrl: url });
+      // const result = response.data;
+      // console.log("Workers AI result is", result);
       setDownloadURL(url);
-      console.log("File available at", url);
     } catch (error) {
       console.error("Upload failed:", error);
     } finally {
