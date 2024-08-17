@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { storage } from "./firebase"; // Adjust the path if necessary
 import {
@@ -14,7 +14,7 @@ function ImageUploader() {
   const [downloadURL, setDownloadURL] = useState(null);
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
-
+  const fileInputRef = useRef(null);
   const handleImageUpload = (event) => {
     const file = event.target.files[0];
     if (file) {
@@ -94,6 +94,8 @@ function ImageUploader() {
   };
 
   const handleClear = () => {
+    //console.log(fileInputRef.current.value);
+    fileInputRef.current.value = "";
     setImage(null);
     setPreview(null);
     setUploading(false);
@@ -111,6 +113,7 @@ function ImageUploader() {
         <div className="mb-4">
           <input
             type="file"
+            ref={fileInputRef}
             accept="image/*"
             onChange={handleImageUpload}
             className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
