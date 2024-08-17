@@ -1,12 +1,19 @@
 import React, { useState } from "react";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { storage } from "./firebase"; // Adjust the path if necessary
+import {
+  sendEmbeddingsToPinecone,
+  searchSimilarImages,
+} from "../pinecone/pinecone.js"; // Import the Pinecone module
 import axios from "axios";
+
 function ImageUploader() {
   const [image, setImage] = useState(null);
   const [preview, setPreview] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [downloadURL, setDownloadURL] = useState(null);
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
 
   const handleImageUpload = (event) => {
     const file = event.target.files[0];
@@ -21,7 +28,7 @@ function ImageUploader() {
     }
   };
 
-  const handleSubmit = async (event) => {
+  const handleUpload = async (event) => {
     event.preventDefault();
 
     if (!image) {
@@ -29,33 +36,78 @@ function ImageUploader() {
       return;
     }
 
-    const storageRef = ref(storage, `images/${image.name}`);
-
     try {
       setUploading(true);
+      const workerUrl = import.meta.env.VITE_APP_WORKER_URL;
+      const formData = new FormData();
+      formData.append("image", image);
+      const response = await axios.post(workerUrl, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+      const result = response.data.semanticData;
+      console.log("result is", result);
 
-      // Upload the file
+      const storageRef = ref(storage, `images/${image.name}`);
       const snapshot = await uploadBytesResumable(storageRef, image);
-
-      // Get the download URL
       const url = await getDownloadURL(snapshot.ref);
-      // const response = await axios.post("cloudflareurl", { imageUrl: url });
-      // const result = response.data;
-      // console.log("Workers AI result is", result);
       setDownloadURL(url);
+      await sendEmbeddingsToPinecone(
+        result.embeddings,
+        result.classification,
+        url
+      );
     } catch (error) {
-      console.error("Upload failed:", error);
+      console.error("Operation failed:", error);
     } finally {
       setUploading(false);
     }
   };
 
+  const handleSearch = async () => {
+    if (!image) {
+      console.log("No image selected.");
+      return;
+    }
+
+    try {
+      setSearching(true);
+      const workerUrl = import.meta.env.VITE_APP_WORKER_URL;
+      const formData = new FormData();
+      formData.append("image", image);
+      const response = await axios.post(workerUrl, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
+      const result = response.data.semanticData;
+      const searchResults = await searchSimilarImages(
+        result.embeddings.data.flat()
+      );
+      setSearchResults(searchResults.matches); // Adjust according to the actual response format
+    } catch (error) {
+      console.error("Search failed:", error);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleClear = () => {
+    setImage(null);
+    setPreview(null);
+    setUploading(false);
+    setDownloadURL(null);
+    setSearchResults([]);
+    setSearching(false);
+  };
+
   return (
     <div className="max-w-md mx-auto mt-10 p-6 bg-white shadow-lg rounded-lg">
       <h2 className="text-2xl font-semibold mb-4 text-center">
-        Upload an Image
+        Upload and Search for Images
       </h2>
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleUpload} className="flex flex-col items-center">
         <div className="mb-4">
           <input
             type="file"
@@ -64,29 +116,41 @@ function ImageUploader() {
             className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        <button
-          type="submit"
-          className={`w-full py-2 px-4 font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-            uploading
-              ? "bg-gray-500 cursor-not-allowed"
-              : "bg-blue-500 hover:bg-blue-600 text-white"
-          }`}
-          disabled={uploading}
-        >
-          {uploading ? "Uploading..." : "Upload"}
-        </button>
-      </form>
 
-      {preview && (
-        <div className="mt-6 text-center">
-          <p className="text-lg font-medium">Image Preview:</p>
-          <img
-            src={preview}
-            alt="Selected"
-            className="mt-4 w-48 h-auto mx-auto rounded-lg shadow-md"
-          />
+        {/* Flex container for buttons */}
+        <div className="flex space-x-4 mb-4">
+          <button
+            type="submit"
+            className={`py-2 px-4 font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+              uploading
+                ? "bg-gray-500 cursor-not-allowed"
+                : "bg-blue-500 hover:bg-blue-600 text-white"
+            }`}
+            disabled={uploading}
+          >
+            {uploading ? "Uploading..." : "Upload"}
+          </button>
+          <button
+            type="button"
+            onClick={handleSearch}
+            className={`py-2 px-4 font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+              searching
+                ? "bg-gray-500 cursor-not-allowed"
+                : "bg-green-500 hover:bg-green-600 text-white"
+            }`}
+            disabled={searching}
+          >
+            {searching ? "Searching..." : "Search Similar Images"}
+          </button>
+          <button
+            type="button"
+            onClick={handleClear}
+            className="py-2 px-4 font-semibold rounded-lg bg-red-500 hover:bg-red-600 text-white focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+          >
+            Clear
+          </button>
         </div>
-      )}
+      </form>
 
       {downloadURL && (
         <div className="mt-6 text-center">
@@ -101,6 +165,25 @@ function ImageUploader() {
           >
             View Uploaded Image
           </a>
+        </div>
+      )}
+
+      {searchResults.length > 0 && (
+        <div className="mt-6">
+          <h3 className="text-xl font-semibold mb-4 text-center">
+            Similar Images:
+          </h3>
+          <div className="grid grid-cols-2 gap-4">
+            {searchResults.map((result, index) => (
+              <div key={index} className="text-center">
+                <img
+                  src={result.metadata.url} // Adjust to match the actual structure
+                  alt={`Similar ${index}`}
+                  className="w-48 h-auto mx-auto rounded-lg shadow-md"
+                />
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
